@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ghana Ludo</title>
+  <meta name="description" content="A Ludo game with Ghanaian / Adinkra theming. Oware mode coming soon." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>Ghana Ludo</h1>
+    <p class="tagline">Classic Ludo, Adinkra-themed. <span class="soon">Oware mode coming soon.</span></p>
+  </header>
+
+  <main>
+    <section class="controls" aria-label="Game controls">
+      <div class="setup" id="setup">
+        <label for="playerCount">Players:</label>
+        <select id="playerCount">
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4" selected>4</option>
+        </select>
+        <button id="startBtn" type="button">Start Game</button>
+      </div>
+
+      <div class="turn-area hidden" id="turnArea">
+        <div class="status" id="status">—</div>
+        <button id="rollBtn" type="button">Roll Dice</button>
+        <div class="dice" id="dice" aria-live="polite">🎲</div>
+        <button id="resetBtn" type="button" class="secondary">Reset</button>
+      </div>
+    </section>
+
+    <canvas id="board" width="600" height="600" aria-label="Ludo board"></canvas>
+
+    <section class="legend" id="legend" aria-label="Players"></section>
+  </main>
+
+  <footer>
+    <p>Built for fun · hot-seat multiplayer · <a href="https://danieldizzy.github.io">danieldizzy.github.io</a></p>
+  </footer>
+
+  <script src="game.js"></script>
+</body>
+</html>
