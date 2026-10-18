@@ -15,30 +15,43 @@
   </header>
 
   <main>
-    <section class="controls" aria-label="Game controls">
-      <div class="setup" id="setup">
-        <label for="playerCount">Players:</label>
+    <!-- Setup overlay (shown before a game) -->
+    <section class="setup-screen" id="setup">
+      <div class="setup-card">
+        <h2>New Game</h2>
+        <label for="playerCount">How many players?</label>
         <select id="playerCount">
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4" selected>4</option>
+          <option value="2">2 players</option>
+          <option value="3">3 players</option>
+          <option value="4" selected>4 players</option>
         </select>
         <button id="startBtn" type="button">Start Game</button>
       </div>
-
-      <div class="turn-area hidden" id="turnArea">
-        <div class="status" id="status">—</div>
-        <button id="rollBtn" type="button">Roll Dice</button>
-        <div class="dice" id="dice" aria-live="polite">🎲</div>
-        <button id="resetBtn" type="button" class="secondary">Reset</button>
-      </div>
     </section>
 
-    <canvas id="board" width="600" height="600" aria-label="Ludo board"></canvas>
+    <!-- Game layout: board + side panel -->
+    <div class="game-layout hidden" id="gameLayout">
+      <div class="board-wrap">
+        <canvas id="board" width="600" height="600" aria-label="Ludo board"></canvas>
+        <div class="banner" id="banner" aria-live="assertive"></div>
+        <canvas id="fx" class="fx" width="600" height="600" aria-hidden="true"></canvas>
+      </div>
 
-    <div class="banner" id="banner" aria-live="assertive"></div>
+      <aside class="panel">
+        <div class="status-card" id="status">—</div>
 
-    <section class="legend" id="legend" aria-label="Players"></section>
+        <div class="dice-area">
+          <div class="dice3d" id="dice" aria-live="polite" title="Dice">
+            <span id="diceFace">·</span>
+          </div>
+          <button id="rollBtn" type="button" class="big">Roll Dice</button>
+        </div>
+
+        <section class="legend" id="legend" aria-label="Players"></section>
+
+        <button id="resetBtn" type="button" class="secondary">New Game</button>
+      </aside>
+    </div>
   </main>
 
   <footer>
