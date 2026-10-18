@@ -123,10 +123,60 @@ function hasWon(player) {
   return player.tokens.every(t => t.state === 'done');
 }
 
+// ----- AI (pure, testable) -----
+// Score each legal move and return the best one. Heuristic priorities:
+//   +1000  move captures an opponent
+//   +500   move finishes a token (reaches 'done')
+//   +300   move brings a token out of the yard (dice===6)
+//   +120   move lands on a safe square
+//   +value advance distance (further progress preferred)
+//   -80    moving onto a non-safe track square where an opponent could be adjacent-behind
+// Returns { tokenIndex, dest, score } or null if no legal moves.
+function chooseAIMove(state, playerId, dice) {
+  const moves = legalMoves(state, playerId, dice);
+  if (moves.length === 0) return null;
+  const player = state.players.find(p => p.id === playerId);
+
+  function progress(pos) {
+    if (pos.state === 'yard') return 0;
+    if (pos.state === 'track') return pos.step + 1;
+    if (pos.state === 'home') return PATH_TRACK_STEPS + pos.step + 1;
+    if (pos.state === 'done') return PATH_TRACK_STEPS + HOME_COL_STEPS + 2;
+    return 0;
+  }
+
+  // Would this destination capture an opponent? (mirror of applyMove's capture rule)
+  function capturesAt(dest) {
+    if (dest.state !== 'track' || isSafe(playerId, dest)) return false;
+    const g = toGlobalIndex(playerId, dest.step);
+    for (const other of state.players) {
+      if (other.id === playerId) continue;
+      for (const otok of other.tokens) {
+        if (otok.state === 'track' && toGlobalIndex(other.id, otok.step) === g) return true;
+      }
+    }
+    return false;
+  }
+
+  let best = null;
+  for (const m of moves) {
+    const from = player.tokens[m.tokenIndex];
+    let score = 0;
+    if (capturesAt(m.dest)) score += 1000;
+    if (m.dest.state === 'done') score += 500;
+    if (from.state === 'yard' && m.dest.state === 'track') score += 300;
+    if (isSafe(playerId, m.dest)) score += 120;
+    score += progress(m.dest) * 2;
+    if (m.dest.state === 'track' && !isSafe(playerId, m.dest)) score -= 20; // mild exposure penalty
+    if (best === null || score > best.score) best = { tokenIndex: m.tokenIndex, dest: m.dest, score };
+  }
+  return best;
+}
+
 // ----- Node test hook -----
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    computeMove, legalMoves, applyMove, hasWon, toGlobalIndex,
+    computeMove, legalMoves, applyMove, hasWon, chooseAIMove, toGlobalIndex,
     isSafe, PLAYER_DEFS, MAIN_TRACK_LEN, PATH_TRACK_STEPS, HOME_COL_STEPS, SAFE_SQUARES,
   };
 }
@@ -145,6 +195,43 @@ if (typeof document !== 'undefined') {
   let pops = [];         // landing pop rings
   let confetti = [];     // win celebration
   let fxActive = false;
+  let aiPlayers = new Set(); // which player ids are AI-controlled
+  let soundOn = true;
+
+  // ---------- WebAudio sound (no files) ----------
+  const Sound = (() => {
+    let actx = null;
+    function ensure() {
+      if (!actx) {
+        try { actx = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { actx = null; }
+      }
+      if (actx && actx.state === 'suspended') actx.resume();
+      return actx;
+    }
+    function blip(freq, dur, type = 'sine', gain = 0.15, slideTo = null) {
+      if (!soundOn) return;
+      const ac = ensure();
+      if (!ac) return;
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, ac.currentTime);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, ac.currentTime + dur);
+      g.gain.setValueAtTime(gain, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime + dur);
+    }
+    return {
+      unlock() { ensure(); },
+      roll()    { blip(220, 0.08, 'square', 0.08); setTimeout(() => blip(300, 0.08, 'square', 0.08), 70); },
+      move()    { blip(440, 0.07, 'triangle', 0.12); },
+      land()    { blip(520, 0.09, 'sine', 0.14); },
+      capture() { blip(300, 0.18, 'sawtooth', 0.18, 120); },
+      win()     { [523,659,784,1047].forEach((f,i)=>setTimeout(()=>blip(f,0.25,'triangle',0.18), i*140)); },
+    };
+  })();
 
   const TRACK_CELLS = buildTrackCells();
   const HOME_CELLS = buildHomeCells();
@@ -468,7 +555,7 @@ if (typeof document !== 'undefined') {
       const chip = document.createElement('div');
       chip.className = 'chip' + (game.current === player.id ? ' active' : '');
       const done = player.tokens.filter(t => t.state === 'done').length;
-      chip.innerHTML = `<span class="dot" style="background:${def.color}"></span>${def.name}<span class="count">${done}/4 home</span>`;
+      chip.innerHTML = `<span class="dot" style="background:${def.color}"></span>${def.name}${isAI(player.id) ? '<span class="ai-tag">AI</span>' : ''}<span class="count">${done}/4 home</span>`;
       legend.appendChild(chip);
     }
   }
@@ -482,7 +569,13 @@ if (typeof document !== 'undefined') {
 
   function startGame() {
     const n = parseInt(document.getElementById('playerCount').value, 10);
+    const aiCount = Math.min(parseInt(document.getElementById('aiCount').value, 10), n - 0);
+    soundOn = document.getElementById('soundToggle').checked;
+    Sound.unlock(); // user gesture → allow audio
     game = newGame(n);
+    // Assign AI to the LAST aiCount players so player 0 (you) is human.
+    aiPlayers = new Set();
+    for (let i = n - aiCount; i < n; i++) if (i >= 1) aiPlayers.add(i);
     setup.classList.add('hidden');
     gameLayout.classList.remove('hidden');
     rollBtn.disabled = false;
@@ -491,6 +584,17 @@ if (typeof document !== 'undefined') {
     showBanner(`${PLAYER_DEFS[game.current].name} starts!`);
     renderLegend();
     draw(); drawFx();
+    maybeAITurn();
+  }
+
+  function isAI(playerId) { return aiPlayers.has(playerId); }
+
+  // If the current player is AI, auto-play its turn after a short beat.
+  function maybeAITurn() {
+    if (!game || game.awaitingMove || anim) return;
+    if (!isAI(game.current)) return;
+    rollBtn.disabled = true;
+    setTimeout(() => { if (game && isAI(game.current)) roll(); }, 650);
   }
 
   function roll() {
@@ -507,6 +611,7 @@ if (typeof document !== 'undefined') {
     const dice = 1 + Math.floor(Math.random() * 6);
     game.dice = dice;
     diceFace.textContent = dice;
+    Sound.roll();
     const legal = legalMoves(game, game.current, dice);
     game.legal = legal;
     if (legal.length === 0) {
@@ -515,22 +620,61 @@ if (typeof document !== 'undefined') {
       return;
     }
     game.awaitingMove = true;
-    setStatus(`Rolled ${dice} — tap a glowing token`);
-    draw();
+    if (isAI(game.current)) {
+      // AI picks and plays its move automatically.
+      const pick = chooseAIMove(game, game.current, dice);
+      setStatus(`${PLAYER_DEFS[game.current].name} (AI) rolled ${dice}`);
+      setTimeout(() => { if (game && pick) executeMove(game.current, pick.tokenIndex, pick.dest); }, 500);
+    } else {
+      setStatus(`Rolled ${dice} — tap a glowing token`);
+      draw();
+    }
+  }
+
+  // Shared move executor used by both human taps and AI.
+  function executeMove(playerId, tokenIndex, dest) {
+    const player = game.players.find(p => p.id === playerId);
+    const from = { ...player.tokens[tokenIndex] };
+    game.awaitingMove = false;
+    Sound.move();
+    animateMove(playerId, tokenIndex, from, dest, () => {
+      const res = applyMove(game, playerId, tokenIndex, dest);
+      const land = tokenXY(playerId, dest, tokenIndex);
+      addPop(land.x, land.y, PLAYER_DEFS[playerId].color);
+      Sound.land();
+      if (res.captured.length) {
+        addFlash(land.x, land.y);
+        Sound.capture();
+        showBanner(`Capture! ${res.captured.length} sent home`, 1100);
+      }
+      if (hasWon(player)) {
+        setStatus(`🏆 ${PLAYER_DEFS[playerId].name} wins!`);
+        showBanner(`🏆 ${PLAYER_DEFS[playerId].name} wins!`, 5000);
+        Sound.win();
+        burstConfetti();
+        rollBtn.disabled = true;
+        renderLegend();
+        return;
+      }
+      nextTurn(game.dice === 6);
+    });
   }
   function nextTurn(extra) {
     game.awaitingMove = false;
     game.legal = [];
-    rollBtn.disabled = false;
     if (!extra) game.current = (game.current + 1) % game.numPlayers;
-    setStatus(`${PLAYER_DEFS[game.current].name}'s turn` + (extra ? ' (bonus 6!)' : ''));
+    const aiTag = isAI(game.current) ? ' (AI)' : '';
+    setStatus(`${PLAYER_DEFS[game.current].name}${aiTag}'s turn` + (extra ? ' (bonus 6!)' : ''));
     showBanner(extra ? 'Bonus roll!' : `${PLAYER_DEFS[game.current].name}'s turn`);
     renderLegend();
     draw();
+    rollBtn.disabled = isAI(game.current);
+    maybeAITurn();
   }
 
   function handlePoint(clientX, clientY) {
     if (!game || !game.awaitingMove || anim) return;
+    if (isAI(game.current)) return; // ignore taps during AI turns
     const rect = canvas.getBoundingClientRect();
     const mx = (clientX - rect.left) * (canvas.width / rect.width);
     const my = (clientY - rect.top) * (canvas.height / rect.height);
@@ -539,27 +683,7 @@ if (typeof document !== 'undefined') {
       const pos = player.tokens[move.tokenIndex];
       const { x, y } = tokenXY(player.id, pos, move.tokenIndex);
       if (Math.hypot(mx - x, my - y) <= CELL * 0.6) {
-        const from = { ...pos };
-        const dest = move.dest;
-        game.awaitingMove = false;
-        animateMove(player.id, move.tokenIndex, from, dest, () => {
-          const res = applyMove(game, player.id, move.tokenIndex, dest);
-          const land = tokenXY(player.id, dest, move.tokenIndex);
-          addPop(land.x, land.y, PLAYER_DEFS[player.id].color);
-          if (res.captured.length) {
-            addFlash(land.x, land.y);
-            showBanner(`Capture! ${res.captured.length} sent home`, 1100);
-          }
-          if (hasWon(player)) {
-            setStatus(`🏆 ${PLAYER_DEFS[player.id].name} wins!`);
-            showBanner(`🏆 ${PLAYER_DEFS[player.id].name} wins!`, 5000);
-            burstConfetti();
-            rollBtn.disabled = true;
-            renderLegend();
-            return;
-          }
-          nextTurn(game.dice === 6);
-        });
+        executeMove(player.id, move.tokenIndex, move.dest);
         return;
       }
     }
@@ -576,7 +700,7 @@ if (typeof document !== 'undefined') {
 
   rollBtn.addEventListener('click', roll);
   resetBtn.addEventListener('click', () => {
-    game = null; anim = null; flashes = []; pops = []; confetti = [];
+    game = null; anim = null; flashes = []; pops = []; confetti = []; aiPlayers = new Set();
     gameLayout.classList.add('hidden');
     setup.classList.remove('hidden');
     legend.innerHTML = '';

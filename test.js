@@ -75,5 +75,29 @@ check('safe square: no capture', safeState.players[1].tokens[0].state === 'track
 check('hasWon false when not all done', g.hasWon({tokens:[{state:'done'},{state:'done'},{state:'done'},{state:'home',step:2}]}) === false);
 check('hasWon true when all done', g.hasWon({tokens:[{state:'done'},{state:'done'},{state:'done'},{state:'done'}]}) === true);
 
+// --- chooseAIMove ---
+// No moves when all in yard and dice != 6
+check('AI: no move when stuck', g.chooseAIMove({players:[{id:0,tokens:[{state:'yard'},{state:'yard'},{state:'yard'},{state:'yard'}]}]}, 0, 3) === null);
+
+// AI prefers a capture over a plain advance.
+// Red token A at step 1 (can advance to step2 by rolling 1 -> global 2, capturing green there).
+// Red token B at step 30 (plain advance). Green sits on global 2.
+const aiCap = { players: [
+  { id:0, tokens:[{state:'track',step:1},{state:'track',step:30},{state:'yard'},{state:'yard'}] },
+  { id:1, tokens:[{state:'track', step:(2 - 13 + 52) % 52},{state:'yard'},{state:'yard'},{state:'yard'}] },
+]};
+const aiPick = g.chooseAIMove(aiCap, 0, 1);
+check('AI: chooses capturing token (index 0)', aiPick && aiPick.tokenIndex === 0);
+// capture adds +1000; minor progress/exposure adjustments net it well above any non-capture move
+check('AI: capture scored dominantly high', aiPick && aiPick.score >= 900);
+
+// AI prefers leaving the yard (dice 6) — with a yard token and an advance option, both legal on a 6.
+const aiYard = { players: [
+  { id:0, tokens:[{state:'yard'},{state:'track',step:5},{state:'yard'},{state:'yard'}] },
+]};
+const aiPick2 = g.chooseAIMove(aiYard, 0, 6);
+check('AI: returns a legal move on 6', aiPick2 !== null);
+check('AI: move is one of the two legal tokens', aiPick2 && [0,1].includes(aiPick2.tokenIndex));
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

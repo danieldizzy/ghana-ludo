@@ -22,9 +22,9 @@ Pure rule logic is verified headlessly:
 
 ## Roadmap
 - [ ] Oware (African mancala) game mode
-- [ ] Simple AI opponent
+- [x] Simple AI opponent (heuristic: capture > finish > leave yard > advance)
 - [ ] Adinkra token artwork + richer kente theming
-- [ ] Sound + animations
+- [x] Sound effects (WebAudio, no files)
 
 ## Credits
 Built for fun. Links from https://danieldizzy.github.io
